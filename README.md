@@ -47,8 +47,11 @@
 
 手动更新：Actions → **Update ETF dashboard data** → Run workflow；本地运行见下方「本地开发」。
 
-> 主题指数行情走国信接口，需要给仓库配置 secret：**Settings → Secrets and variables → Actions → New repository secret**，
+> 持仓主题指数行情走国信接口，需要给仓库配置 secret：**Settings → Secrets and variables → Actions → New repository secret**，
 > Name 填 `GS_API_KEY`，Value 填国信 Skill 的 API Key。若未配置，该步骤自动跳过（保留旧数据，不会报错）。
+
+**密钥管理原则（本项目）**：所有 Key 只从环境变量 / GitHub Secret 注入，不写进任何代码与文档；
+仓库禁入 Key（`.gitignore` 已忽略本地密钥文件，历史提交中亦无 Key）。
 
 ## 本地开发
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import time
 from pathlib import Path
 from typing import Iterable, List
 
@@ -28,13 +29,21 @@ def _akshare_symbol(symbol: str) -> str:
 
 
 def _fetch_via_akshare(symbol: str, start: dt.date) -> pd.DataFrame:
-    df = ak.stock_zh_index_daily_em(symbol=_akshare_symbol(symbol))
-    if df.empty:
-        raise RuntimeError("akshare 返回空结果")
-    df = df.rename(columns={"date": "date", "close": "close"})
-    df["date"] = pd.to_datetime(df["date"])
-    df = df.loc[df["date"] >= pd.Timestamp(start)].sort_values("date")
-    return df[["date", "close"]]
+    last_err = None
+    for attempt in range(3):
+        try:
+            df = ak.stock_zh_index_daily_em(symbol=_akshare_symbol(symbol))
+            if df.empty:
+                raise RuntimeError("akshare 返回空结果")
+            df = df.rename(columns={"date": "date", "close": "close"})
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.loc[df["date"] >= pd.Timestamp(start)].sort_values("date")
+            return df[["date", "close"]]
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"akshare 重试 3 次失败: {last_err}")
 
 
 def _fetch_via_yfinance(symbols: Iterable[str], start: dt.date) -> pd.DataFrame:
@@ -68,6 +77,7 @@ def main() -> None:
 
     start_date = dt.date.today() - dt.timedelta(days=365 * 15)
 
+    ok, fail = 0, 0
     for cfg in indices:
         code = cfg["code"]
         price_symbol = str(cfg.get("price_symbol") or code)
@@ -75,16 +85,25 @@ def main() -> None:
 
         print(f"[CN_CSI] {code} -> {price_symbol}")
         try:
-            price_df = _fetch_via_akshare(price_symbol, start_date)
-            source = "akshare"
+            try:
+                price_df = _fetch_via_akshare(price_symbol, start_date)
+                source = "akshare"
+            except Exception as exc:  # noqa: BLE001
+                print(f"  akshare 失败: {exc}，转 yfinance 兜底")
+                price_df = _fetch_via_yfinance([price_symbol, *proxies], start_date)
+                source = "yfinance"
         except Exception as exc:  # noqa: BLE001
-            print(f"  akshare 失败: {exc}")
-            price_df = _fetch_via_yfinance([price_symbol, *proxies], start_date)
-            source = "yfinance"
+            print(f"  {code} 行情获取失败，跳过（保留旧数据）: {exc}")
+            fail += 1
+            continue
 
         path = RAW_DIR / PRICE_FILENAME.format(code=code)
         price_df.to_csv(path, index=False)
+        ok += 1
         print(f"  行情 {len(price_df)} 条，来源 {source}")
+    print(f"[CN_CSI] 完成: 成功 {ok} / 失败 {fail}")
+    if ok == 0:
+        raise SystemExit("CN_CSI 全部失败")
 
 
 if __name__ == "__main__":
