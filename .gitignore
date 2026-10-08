@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.env
+
+# 数据（由 workflow 抓取生成）
+data/raw/
+data/processed/
+
+# 系统/编辑器
+.DS_Store
+.vscode/
+.idea/
+*.log
