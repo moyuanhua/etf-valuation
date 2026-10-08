@@ -26,11 +26,14 @@ jobs:
           pip install -r requirements.txt
 
       - name: Fetch data and compute metrics
+        env:
+          GS_API_KEY: ${{ secrets.GS_API_KEY }}
         run: |
           python scripts/fetch_djeva.py
           python scripts/fetch_cn_csindex.py
           python scripts/fetch_hk_hsi.py
           python scripts/fetch_us_yf.py
+          python scripts/fetch_theme_csindex.py
           python scripts/compute_metrics.py
           python scripts/build_assets.py
 

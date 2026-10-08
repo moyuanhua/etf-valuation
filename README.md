@@ -17,9 +17,13 @@
 |---|---:|---|
 | 估值 | 45% | 综合估值分位 = PE 分位 ×60% + PB 分位 ×40%，分位越低得分越高 |
 | 质量 | 35% | ROE ×70% + 股息率 ×30%（ROE 15%、股息 5% 封顶） |
-| 回撤 | 20% | 当前价距近十年滚动高点的跌幅，跌越深得分越高 |
+| 回撤 | 20% | 当前价距滚动高点的跌幅，跌越深得分越高（完整覆盖为近十年窗口） |
 
 评级：**≥75 深度价值 · ≥60 价值区 · ≥45 合理 · ≥30 偏贵 · <30 高估**
+
+> 持仓主题指数（中证机器人/电池主题/机床/电网设备主题/人工智能主题/港股通互联网/上证综合，
+> 在页面上以 ⭐ 标记）：蛋卷未覆盖，暂无十年历史分位与 PB/ROE，显示为「观察」不参与评分，
+> 仅展示中证官网 PE/股息快照与近 2 年回撤。ETF→指数映射经天天基金与国信接口双重确认。
 
 > 质量维度用于过滤「便宜但垃圾」的价值陷阱；回撤权重被压到 20%，避免把「跌得多」误当「有价值」。
 
@@ -43,15 +47,20 @@
 
 手动更新：Actions → **Update ETF dashboard data** → Run workflow；本地运行见下方「本地开发」。
 
+> 主题指数行情走国信接口，需要给仓库配置 secret：**Settings → Secrets and variables → Actions → New repository secret**，
+> Name 填 `GS_API_KEY`，Value 填国信 Skill 的 API Key。若未配置，该步骤自动跳过（保留旧数据，不会报错）。
+
 ## 本地开发
 
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+export GS_API_KEY="你的国信Key"   # 仅主题指数行情需要
 .venv/bin/python scripts/fetch_djeva.py          # 估值（蛋卷）
 .venv/bin/python scripts/fetch_cn_csindex.py     # A股行情
 .venv/bin/python scripts/fetch_hk_hsi.py         # 港股行情
 .venv/bin/python scripts/fetch_us_yf.py          # 美股/海外行情
+.venv/bin/python scripts/fetch_theme_csindex.py  # 持仓主题指数（需 GS_API_KEY）
 .venv/bin/python scripts/compute_metrics.py
 .venv/bin/python scripts/build_assets.py
 .venv/bin/python -m http.server 8017 --directory docs   # http://127.0.0.1:8017/

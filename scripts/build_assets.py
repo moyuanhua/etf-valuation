@@ -59,13 +59,16 @@ def main() -> None:
                 "index_code": code,
                 "etfs": _format_etfs(cfg),
                 "pe": _safe(metrics.get("pe_current"), None, 2),
-                "pe_pct": _safe(metrics.get("pe_pct"), 100.0, 2),
+                "pe_pct": _safe(metrics.get("pe_pct"), None, 2),
                 "pb": _safe(metrics.get("pb_current"), None, 2),
-                "pb_pct": _safe(metrics.get("pb_pct"), 100.0, 2),
+                "pb_pct": _safe(metrics.get("pb_pct"), None, 2),
                 "dividend": _safe(metrics.get("dividend_current"), None, 4),
                 "roe": _safe(metrics.get("roe_current"), None, 4),
-                "drawdown": _safe(metrics.get("drawdown"), 0.0, 4),
+                "drawdown": _safe(metrics.get("drawdown"), None, 4),
                 "eva_type": metrics.get("eva_type") if isinstance(metrics, pd.Series) else None,
+                "coverage": metrics.get("coverage") if isinstance(metrics, pd.Series) else "partial",
+                "dd_window": metrics.get("dd_window") if isinstance(metrics, pd.Series) else "",
+                "watch": bool(metrics.get("watch")) if isinstance(metrics, pd.Series) else False,
             }
         )
 

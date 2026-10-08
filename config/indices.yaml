@@ -21,6 +21,7 @@
   etf_proxies:
     - "3067.HK"
     - "513180.SS"
+  watch: true
 
 - name: 恒生指数
   code: "HKHSI"
@@ -96,6 +97,7 @@
   price_symbol: "sh000688"
   etf_proxies:
     - "588000.SS"
+  watch: true
 
 - name: 证券行业
   code: "SZ399975"
@@ -113,6 +115,7 @@
   etf_proxies:
     - "510300.SS"
     - "159919.SZ"
+  watch: true
 
 - name: 全指信息
   code: "SH000993"
@@ -173,3 +176,69 @@
   etf_proxies:
     - "DAXEX.DE"
     - "513030.SS"
+
+# --- 持仓主题指数（部分覆盖：中证官网快照 + 国信近2年行情，无十年历史分位） ---
+# underlyCode 由国信 basicInfo 交叉验证
+- name: 中证机器人
+  code: "H30590"
+  csindex_symbol: "H30590"
+  class: "CN_THEME"
+  gs_code: "159770"
+  gs_setcode: 0
+  etf_proxies:
+    - "159770.SZ"
+  watch: true
+- name: 中证电池主题
+  code: "CSI931719"
+  csindex_symbol: "931719"
+  class: "CN_THEME"
+  gs_code: "561910"
+  gs_setcode: 1
+  etf_proxies:
+    - "561910.SS"
+  watch: true
+- name: 中证机床
+  code: "CSI931866"
+  csindex_symbol: "931866"
+  class: "CN_THEME"
+  gs_code: "159667"
+  gs_setcode: 0
+  etf_proxies:
+    - "159667.SZ"
+  watch: true
+- name: 中证电网设备主题
+  code: "CSI931994"
+  csindex_symbol: "931994"
+  class: "CN_THEME"
+  gs_code: "159326"
+  gs_setcode: 0
+  etf_proxies:
+    - "159326.SZ"
+  watch: true
+- name: 中证人工智能主题
+  code: "CSI930713"
+  csindex_symbol: "930713"
+  class: "CN_THEME"
+  gs_code: "159819"
+  gs_setcode: 0
+  etf_proxies:
+    - "159819.SZ"
+  watch: true
+- name: 中证港股通互联网
+  code: "CSI931637"
+  csindex_symbol: "931637"
+  class: "CN_THEME"
+  gs_code: "513040"
+  gs_setcode: 1
+  etf_proxies:
+    - "513040.SS"
+  watch: true
+- name: 上证综合
+  code: "SH000001"
+  csindex_symbol: "000001"
+  class: "CN_THEME"
+  gs_code: "510210"
+  gs_setcode: 1
+  etf_proxies:
+    - "510210.SS"
+  watch: true

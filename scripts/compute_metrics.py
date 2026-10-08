@@ -22,9 +22,11 @@ PRICE_DIRS = {
     "CN_CSI": DATA_ROOT / "raw" / "cn_csi",
     "HK_HSI": DATA_ROOT / "raw" / "hk_hsi",
     "US_INDEX": DATA_ROOT / "raw" / "us_index",
+    "CN_THEME": DATA_ROOT / "raw" / "cn_theme",
 }
 
 DJEVA_DIR = DATA_ROOT / "raw" / "djeva"
+THEME_VAL_DIR = DATA_ROOT / "raw" / "theme"
 PROCESSED_DIR = ensure_data_dir("processed")
 METRICS_FILE = PROCESSED_DIR / "metrics.csv"
 
@@ -51,6 +53,9 @@ def _percentile(series: pd.Series) -> Optional[float]:
         return None
     series = series.sort_index()
     window = _ten_year_window(series)
+    # 历史不足 ~1 年时不计算分位，避免用 1 个月快照得出误导性百分位
+    if len(window) < 250:
+        return None
     current = window.iloc[-1]
     percentile = (window <= current).sum() / len(window) * 100.0
     return float(np.clip(percentile, 0.0, 100.0))
@@ -89,8 +94,13 @@ def _load_price(cfg: dict[str, object]) -> pd.DataFrame:
 
 
 def _load_valuation(cfg: dict[str, object]) -> pd.DataFrame:
-    path = DJEVA_DIR / f"{cfg['code']}_valuation.csv"
-    df = _read_csv(path)
+    for base in (DJEVA_DIR, THEME_VAL_DIR):
+        path = base / f"{cfg['code']}_valuation.csv"
+        df = _read_csv(path)
+        if not df.empty:
+            break
+    else:
+        return pd.DataFrame()
     if df.empty:
         return df
     df = df.sort_values("date")
@@ -141,11 +151,23 @@ def main() -> None:
             pb_pct = _percentile(valuation.get("pb", pd.Series(dtype=float)))
 
         drawdown = _drawdown(prices.get("close", pd.Series(dtype=float)))
+        price_series = prices.get("close", pd.Series(dtype=float)).dropna()
+        price_len = int(price_series.shape[0])
+        # 回撤窗口标签：实际参与计算的时间跨度（十年封顶），如实标注
+        if price_len > 1 and isinstance(prices.index, pd.DatetimeIndex):
+            span_years = (prices.index.max() - prices.index.min()).days / 365.0
+        elif price_len > 1:
+            span_years = price_len / 250.0
+        else:
+            span_years = 0.0
+        dd_window = f"{min(span_years, 10.0):.0f}y" if span_years > 0 else ""
 
         pe_current = _current(valuation.get("pe", pd.Series(dtype=float)))
         pb_current = _current(valuation.get("pb", pd.Series(dtype=float)))
         div_current = _current(valuation.get("dividend_yield", pd.Series(dtype=float)))
         roe_current = _current(valuation.get("roe", pd.Series(dtype=float)))
+
+        coverage = "full" if (pe_pct is not None and pb_pct is not None) else "partial"
 
         eva_type = None
         eva_type_int = None
@@ -169,6 +191,9 @@ def main() -> None:
                 "eva_type": eva_type,
                 "eva_type_int": eva_type_int,
                 "bond_yield": bond_yield,
+                "coverage": coverage,
+                "dd_window": dd_window,
+                "watch": bool(cfg.get("watch", False)),
             }
         )
 

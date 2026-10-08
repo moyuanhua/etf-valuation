@@ -127,7 +127,8 @@
 
         <footer class="mt-10 rounded-xl border border-slate-200/70 bg-white/85 p-5 text-xs text-slate-500 backdrop-blur dark:border-slate-800/70 dark:bg-slate-900/70 dark:text-slate-400 space-y-3">
             <p>数据在交易日北京时间 18:30 左右自动更新，若数据源滞后将沿用上一日数值。</p>
-            <p>回撤指当前价格相对最近十年滚动最高价的跌幅；估值百分位取自蛋卷口径，缺失时按近十年序列自算。</p>
+            <p>回撤指当前价格相对滚动最高价的跌幅：完整覆盖为近十年，持仓主题指数（观察）为近 2 年（国信接口上限 500 个交易日），两者不可直接对比。</p>
+            <p>⭐ 为自选持仓对应指数；「观察」为部分覆盖：有中证官网 PE/股息快照与近 2 年回撤，暂无十年历史分位与 PB/ROE，不参与评分。</p>
             <p>评分 = 估值 45%（PE 分位 60% + PB 分位 40%）+ 质量 35%（ROE 70% + 股息 30%）+ 回撤 20%，仅供研究参考。</p>
             <p>本工具与 AI 助手输出仅供研究参考，不构成投资建议，请结合自身风险承受能力审慎决策。</p>
         </footer>
@@ -258,6 +259,9 @@
                 roe: toNumber(pickValue(raw, ['roe', 'roe_current'])),
                 drawdown: toNumber(pickValue(raw, ['drawdown'])),
                 evaType: String(pickValue(raw, ['eva_type', 'evaType']) ?? '').trim(),
+                coverage: String(pickValue(raw, ['coverage']) ?? 'full').trim() || 'full',
+                ddWindow: String(pickValue(raw, ['dd_window', 'ddWindow']) ?? '').trim(),
+                watch: String(pickValue(raw, ['watch']) ?? '').toLowerCase() === 'true',
             };
         }
 
@@ -333,6 +337,9 @@
         }
 
         function calculateScore(asset) {
+            if (asset.coverage !== 'full') {
+                return { total: null, rating: { label: '观察', pillClass: EVA_BADGES.mid, stars: 3 }, breakdown: null, partial: true };
+            }
             const pePct = Number.isFinite(asset.pePercentile) ? asset.pePercentile : 100;
             const pbPct = Number.isFinite(asset.pbPercentile) ? asset.pbPercentile : 100;
             const roe = Number.isFinite(asset.roe) ? asset.roe : 0;
@@ -370,6 +377,9 @@
         }
 
         function ratingPill(score) {
+            if (score.partial) {
+                return `<span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold border border-slate-400/40 bg-slate-500/10 text-slate-600 dark:border-slate-500/40 dark:bg-slate-500/15 dark:text-slate-300"><span class="text-xs font-medium">观察 · 数据覆盖中</span></span>`;
+            }
             return `<span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm font-semibold ${score.rating.pillClass}"><span>${score.total}</span><span class="text-xs font-medium">${score.rating.label}</span></span>`;
         }
 
@@ -394,12 +404,13 @@
                 const score = calculateScore(asset);
                 const drawdown = Number.isFinite(asset.drawdown) ? asset.drawdown : 0;
 
-                opportunityCandidates.push({ asset, score });
+                if (!score.partial) {
+                    opportunityCandidates.push({ asset, score });
+                    scoreFloor.push({ asset, score });
+                    if (score.rating.label === '深度价值') opportunityCount += 1;
+                    if (score.rating.label === '高估') riskCount += 1;
+                }
                 drawdownLeaders.push({ asset, score, drawdown });
-                scoreFloor.push({ asset, score });
-
-                if (score.rating.label === '深度价值') opportunityCount += 1;
-                if (score.rating.label === '高估') riskCount += 1;
             });
 
             const topOpportunities = opportunityCandidates
@@ -458,7 +469,7 @@
                                         <span class="flex items-center gap-2 font-semibold text-slate-800 dark:text-white"><span class="text-xs font-medium text-emerald-500 dark:text-emerald-300">#${rank}</span>${asset.indexName}</span>
                                         <span class="text-sm font-bold text-emerald-600 dark:text-emerald-300">${score.total}</span>
                                     </div>
-                                    <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">估值 / 质量 / 回撤 ${score.breakdown.valueScore} / ${score.breakdown.qualityScore} / ${score.breakdown.painScore}</div>
+                                    <div class="mt-1 text-xs text-slate-500 dark:text-slate-400">估值 / 质量 / 回撤 ${score.breakdown ? `${score.breakdown.valueScore} / ${score.breakdown.qualityScore} / ${score.breakdown.painScore}` : '—'}</div>
                                 </li>
                             `;
                         })
@@ -501,12 +512,13 @@
                 const evaKey = (asset.evaType || '').toLowerCase();
                 const badgeClass = EVA_BADGES[evaKey] || EVA_BADGES.mid;
                 const etfText = asset.etfs.join(', ');
+                const watchMark = asset.watch ? '⭐ ' : '';
                 return `
                     <tr class="group relative transition hover:bg-slate-100/80 dark:hover:bg-slate-900/70">
                         <td class="sticky left-0 z-20 w-64 px-4 py-4 align-middle bg-white/85 backdrop-blur dark:bg-slate-900/60">
                             <div class="flex flex-col gap-2" title="${etfText || '无 ETF 对应'}">
                                 <div class="flex flex-wrap items-center gap-3">
-                                    <span class="text-base font-semibold text-slate-800 transition group-hover:text-sky-600 dark:text-white dark:group-hover:text-sky-200">${asset.indexName}</span>
+                                    <span class="text-base font-semibold text-slate-800 transition group-hover:text-sky-600 dark:text-white dark:group-hover:text-sky-200">${watchMark}${asset.indexName}</span>
                                     <span class="inline-flex items-center px-2.5 py-0.5 text-xs font-semibold rounded-md ${badgeClass}">${evaKey === 'low' ? '低估' : evaKey === 'high' ? '高估' : '中性'}</span>
                                 </div>
                                 <div class="text-xs text-slate-400 dark:text-slate-500 flex items-center gap-2">
@@ -537,19 +549,22 @@
                 const evaKey = (asset.evaType || '').toLowerCase();
                 const badgeClass = EVA_BADGES[evaKey] || EVA_BADGES.mid;
                 const stars = ratingBuckets.indexOf(score.rating) >= 0 ? makeStars(score.rating.stars) : makeStars(3);
+                const scoreMain = score.partial ? '观察' : score.total;
+                const breakdownText = score.breakdown ? `${score.breakdown.valueScore} / ${score.breakdown.qualityScore} / ${score.breakdown.painScore}` : '—';
+                const watchMark = asset.watch ? '⭐ ' : '';
                 const card = `
                     <article class="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-lg shadow-slate-900/10 backdrop-blur dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200 dark:shadow-black/40" data-index="${index}">
                         <div class="flex flex-wrap items-start justify-between gap-3">
                             <div>
                                 <div class="flex items-center gap-2">
-                                    <h2 class="text-lg font-semibold text-slate-800 dark:text-white">${asset.indexName}</h2>
+                                    <h2 class="text-lg font-semibold text-slate-800 dark:text-white">${watchMark}${asset.indexName}</h2>
                                     <span class="inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-md ${badgeClass}">${evaKey === 'low' ? '低估' : evaKey === 'high' ? '高估' : '中性'}</span>
                                 </div>
                                 <p class="text-xs text-slate-500 dark:text-slate-500 mt-1">${asset.indexCode} · ${asset.etfs.join(', ') || '—'}</p>
                             </div>
                             <div class="text-right">
-                                <div class="text-3xl font-bold text-slate-800 dark:text-white">${score.total}</div>
-                                <div class="text-xs text-slate-500 dark:text-slate-400">${score.rating.label}</div>
+                                <div class="text-3xl font-bold text-slate-800 dark:text-white">${scoreMain}</div>
+                                <div class="text-xs text-slate-500 dark:text-slate-400">${score.partial ? '数据覆盖中' : score.rating.label}</div>
                                 <div class="text-sm text-amber-500 dark:text-amber-300">${stars}</div>
                             </div>
                         </div>
@@ -576,7 +591,7 @@
                             </div>
                             <div class="space-y-1">
                                 <dt class="text-xs text-slate-500">估值 / 质量 / 回撤</dt>
-                                <dd class="font-semibold text-slate-800 dark:text-slate-100">${score.breakdown.valueScore} / ${score.breakdown.qualityScore} / ${score.breakdown.painScore}</dd>
+                                <dd class="font-semibold text-slate-800 dark:text-slate-100">${breakdownText}</dd>
                             </div>
                         </dl>
                     </article>
@@ -652,8 +667,14 @@
             if (!resolvedUpdatedAt) {
                 resolvedUpdatedAt = await probeLastModified();
             }
+            // 完整覆盖按评分降序；部分覆盖（观察）排在后面
             const sorted = Array.isArray(rows)
-                ? [...rows].sort((a, b) => calculateScore(b).total - calculateScore(a).total)
+                ? [...rows].sort((a, b) => {
+                    const sa = calculateScore(a);
+                    const sb = calculateScore(b);
+                    if (!!sa.partial !== !!sb.partial) return sa.partial ? 1 : -1;
+                    return (sb.total ?? -1) - (sa.total ?? -1);
+                })
                 : [];
 
             cachedSortedAssets = sorted;
@@ -700,6 +721,7 @@
                 '对比一下科创50和恒生科技的性价比',
                 '为什么中证红利的估值分位这么高？',
                 '给我一份适合长期定投的低估清单',
+                '我的持仓指数（⭐标记）现在是什么水平？',
             ];
 
             function escapeHtml(s) {
@@ -733,7 +755,7 @@
                     '下面是今日指数估值快照（JSON 数组）。字段含义：name 指数名；code 指数代码；etfs 对应可交易 ETF；pe/pb 当前值；pe_pct/pb_pct 历史估值百分位（0-100，越低越便宜）；dividend 股息率；roe 净资产收益率；drawdown 当前价距近十年高点的回撤（0-1）；score 长期价值分（0-100）；rating 评级。',
                     '评分规则：估值 45%（PE 分位 60% + PB 分位 40%）+ 质量 35%（ROE 70% + 股息率 30%）+ 回撤 20%。评级：≥75 深度价值；≥60 价值区；≥45 合理；≥30 偏贵；<30 高估。',
                     '今日数据：\n' + buildContext(),
-                    '回答要求：① 只基于给定数据回答，不编造数字，数据与观点要分清；② 提醒用户估值百分位是相对该指数自身历史，不是绝对便宜；③ 深回撤不等于机会，注意价值陷阱（低 ROE、行业逻辑恶化）；④ 保持简洁，用列表；⑤ 每次回答以「仅供参考，不构成投资建议。」结尾。',
+                    '回答要求：① 只基于给定数据回答，不编造数字，数据与观点要分清；② 提醒用户估值百分位是相对该指数自身历史，不是绝对便宜；③ 深回撤不等于机会，注意价值陷阱（低 ROE、行业逻辑恶化）；④ rating 为「观察」的行是部分覆盖（仅中证 PE/股息快照 + 近 2 年回撤，无十年分位与 PB/ROE），解读时要说明其局限，不给评分排名；⑤ 保持简洁，用列表；⑥ 每次回答以「仅供参考，不构成投资建议。」结尾。',
                 ].join('\n\n');
             }
 
