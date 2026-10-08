@@ -39,7 +39,7 @@
 仓库已配置 GitHub Actions 自动更新。首次部署只需一步：
 
 1. GitHub 仓库 **Settings → Pages → Source** 选择 **`Deploy from a branch`** → 分支 **`main`** → 目录 **`/docs`** → Save。
-2. 片刻后访问 `https://<用户名>.github.io/etf-valuation/` 即可。
+2. 片刻后访问 `https://<用户名>.github.io/etf-valuation/` 即可（首次构建约需 1-2 分钟）。
 
 手动更新：Actions → **Update ETF dashboard data** → Run workflow；本地运行见下方「本地开发」。
 
