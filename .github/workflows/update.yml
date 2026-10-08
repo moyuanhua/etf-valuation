@@ -1,8 +1,8 @@
 name: Update ETF dashboard data
 
+# 定时已停用：境外 runner 抓不到中证/东财/国信，会写出缺少 A 股回撤的残数据。
+# 数据改由本机每日生成（skill: etf-daily-report），并通过 workflow_dispatch 手动补跑。
 on:
-  schedule:
-    - cron: "30 10 * * 1-5"  # 每个工作日 UTC 10:30（北京时间 18:30）
   workflow_dispatch:
   push:
     paths:
