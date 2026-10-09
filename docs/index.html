@@ -30,6 +30,7 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <style>
         body { font-family: 'Inter', 'Helvetica Neue', 'Arial', sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
         .sticky-head { backdrop-filter: blur(8px); z-index: 20; }
@@ -95,6 +96,15 @@
                     </div>
                 </div>
             </article>
+        </section>
+
+        <section class="rounded-xl border border-slate-200/80 bg-white/85 p-5 shadow-xl shadow-slate-900/10 backdrop-blur dark:border-slate-800/80 dark:bg-slate-900/60 dark:shadow-black/40">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <h2 class="text-sm font-semibold uppercase tracking-widest text-slate-500 dark:text-slate-400">📈 历史曲线 · 长期跟踪</h2>
+                <select id="chart-index" class="rounded-lg border border-slate-300/80 bg-white px-3 py-1.5 text-sm text-slate-700 outline-none focus:border-sky-400 dark:border-slate-600/80 dark:bg-slate-800 dark:text-slate-200"></select>
+            </div>
+            <div id="history-chart" class="mt-3" style="height:360px"></div>
+            <p class="mt-2 text-xs text-slate-400 dark:text-slate-500">左轴：PE 历史百分位（越低越便宜）；右轴：价格。⭐ 为自选持仓。数据每交易日 18:40 由本机更新，保留近半年。</p>
         </section>
 
         <section class="space-y-4">
@@ -698,6 +708,53 @@
                     renderCards(cachedSortedAssets);
                 }
             });
+        })();
+    </script>
+
+    <script>
+        // ===== 历史曲线（ECharts，读 docs/history.json）=====
+        (function () {
+            const sel = document.getElementById('chart-index');
+            const el = document.getElementById('history-chart');
+            if (!sel || !el || typeof echarts === 'undefined') return;
+            const chart = echarts.init(el);
+            const isDark = () => document.documentElement.classList.contains('dark');
+            let data = null;
+            function render(code) {
+                const it = ((data && data.indices) || []).find(x => x.code === code);
+                if (!it) return;
+                const text = isDark() ? '#e2e8f0' : '#334155';
+                const axis = isDark() ? '#334155' : '#e2e8f0';
+                const val = (it.val || []).filter(x => x[1] != null);
+                const px = (it.px || []).filter(x => x[1] != null);
+                chart.setOption({
+                    backgroundColor: 'transparent',
+                    tooltip: { trigger: 'axis' },
+                    legend: { data: ['PE百分位', '价格'], textStyle: { color: text }, top: 0 },
+                    grid: { left: 52, right: 60, top: 34, bottom: 30 },
+                    xAxis: { type: 'time', axisLine: { lineStyle: { color: axis } }, axisLabel: { color: text } },
+                    yAxis: [
+                        { type: 'value', name: 'PE分位', min: 0, max: 100, axisLabel: { color: text }, nameTextStyle: { color: text }, splitLine: { lineStyle: { color: axis, opacity: 0.3 } } },
+                        { type: 'value', name: '价格', scale: true, axisLabel: { color: text }, nameTextStyle: { color: text }, splitLine: { show: false } },
+                    ],
+                    series: [
+                        { name: 'PE百分位', type: 'line', showSymbol: false, smooth: true, lineStyle: { width: 2, color: '#0ea5e9' }, itemStyle: { color: '#0ea5e9' }, data: val },
+                        { name: '价格', type: 'line', showSymbol: false, smooth: true, yAxisIndex: 1, lineStyle: { width: 1.5, color: '#f59e0b' }, itemStyle: { color: '#f59e0b' }, data: px },
+                    ],
+                }, true);
+            }
+            fetch('history.json?ts=' + Date.now())
+                .then(r => (r.ok ? r.json() : null))
+                .then(d => {
+                    if (!d) return;
+                    data = d;
+                    const ordered = [...d.indices].sort((a, b) => (b.watch ? 1 : 0) - (a.watch ? 1 : 0));
+                    ordered.forEach(it => { const o = document.createElement('option'); o.value = it.code; o.textContent = (it.watch ? '⭐ ' : '') + it.name; sel.appendChild(o); });
+                    sel.addEventListener('change', () => render(sel.value));
+                    if (ordered.length) { sel.value = ordered[0].code; render(ordered[0].code); }
+                })
+                .catch(() => {});
+            window.addEventListener('resize', () => chart.resize());
         })();
     </script>
 

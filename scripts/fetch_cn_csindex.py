@@ -157,10 +157,20 @@ def _fetch_via_guosen(code: str, set_code: int) -> pd.DataFrame:
                 last_err = str(exc2)[:150]
                 payload = None
                 continue
-        result = (payload or {}).get("result", {})
-        if result.get("code") == 0 and payload.get("object", {}).get("dailyHQList"):
+        if not isinstance(payload, dict):
+            last_err = f"非预期响应类型: {type(payload).__name__}"
+            payload = None
+            continue
+        result = payload.get("result", {})
+        if isinstance(result, list):
+            ok = any(isinstance(x, dict) and x.get("code") == 0 for x in result)
+            code_msg = result[0] if result and isinstance(result[0], dict) else result
+        else:
+            ok = isinstance(result, dict) and result.get("code") == 0
+            code_msg = result
+        if ok and payload.get("object", {}).get("dailyHQList"):
             break
-        last_err = str(result)
+        last_err = str(code_msg)
         payload = None
     if payload is None:
         raise RuntimeError(f"国信返回异常: {last_err}")

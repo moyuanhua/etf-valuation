@@ -1,8 +1,12 @@
-"""Aggregate price & valuation data to compute dashboard metrics."""
+"""Aggregate the committed history store into daily dashboard metrics.
+
+Reads data/history/valuation.csv and data/history/price.csv (long format,
+maintained incrementally by update_history.py). No network access — so this
+also runs fine in CI from committed data.
+"""
 
 from __future__ import annotations
 
-import datetime as dt
 from pathlib import Path
 from typing import Optional
 
@@ -18,184 +22,110 @@ except ImportError:  # pragma: no cover - direct execution fallback
     from scripts.common import DATA_ROOT, ensure_data_dir, load_indices  # type: ignore
 
 
-PRICE_DIRS = {
-    "CN_CSI": DATA_ROOT / "raw" / "cn_csi",
-    "HK_HSI": DATA_ROOT / "raw" / "hk_hsi",
-    "US_INDEX": DATA_ROOT / "raw" / "us_index",
-    "CN_THEME": DATA_ROOT / "raw" / "cn_theme",
-}
-
-DJEVA_DIR = DATA_ROOT / "raw" / "djeva"
-THEME_VAL_DIR = DATA_ROOT / "raw" / "theme"
+HIST_DIR = DATA_ROOT / "history"
+VAL_FILE = HIST_DIR / "valuation.csv"
+PRICE_FILE = HIST_DIR / "price.csv"
 PROCESSED_DIR = ensure_data_dir("processed")
 METRICS_FILE = PROCESSED_DIR / "metrics.csv"
 
 
-def _read_csv(path: Path) -> pd.DataFrame:
+def _read(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame()
-    return pd.read_csv(path, parse_dates=["date"])
+    df = pd.read_csv(path, dtype={"index_code": str})
+    if "date" in df.columns:
+        df["date"] = pd.to_datetime(df["date"])
+    return df
 
 
-def _ten_year_window(series: pd.Series) -> pd.Series:
-    if series.empty:
-        return series
-    series = series.sort_index()
-    last_date = series.index.max()
-    cutoff = last_date - pd.DateOffset(years=10)
-    window = series[series.index >= cutoff]
-    return window if not window.empty else series
+def _num(s: pd.Series) -> pd.Series:
+    return pd.to_numeric(s, errors="coerce")
 
 
 def _percentile(series: pd.Series) -> Optional[float]:
-    series = series.dropna()
-    if series.empty:
+    series = _num(series).dropna()
+    # 只用足够长的历史自算分位（≥约 8 年），避免用短窗口给出误导性百分位
+    if len(series) < 2000:
         return None
     series = series.sort_index()
-    window = _ten_year_window(series)
-    # 历史不足 ~1 年时不计算分位，避免用 1 个月快照得出误导性百分位
-    if len(window) < 250:
-        return None
-    current = window.iloc[-1]
-    percentile = (window <= current).sum() / len(window) * 100.0
-    return float(np.clip(percentile, 0.0, 100.0))
+    current = series.iloc[-1]
+    return float(np.clip((series <= current).sum() / len(series) * 100.0, 0.0, 100.0))
 
 
 def _current(series: pd.Series) -> Optional[float]:
-    series = series.dropna()
-    if series.empty:
-        return None
-    series = series.sort_index()
-    value = series.iloc[-1]
-    return float(value)
+    series = _num(series).dropna()
+    return float(series.iloc[-1]) if not series.empty else None
 
 
 def _drawdown(price: pd.Series) -> Optional[float]:
-    price = price.dropna()
+    price = _num(price).dropna()
     if price.empty:
         return None
-    price = price.sort_index()
-    window = _ten_year_window(price)
-    rolling_max = window.cummax()
-    dd = 1.0 - window / rolling_max
+    rolling_max = price.cummax()
+    dd = 1.0 - price / rolling_max
     return float(np.clip(dd.iloc[-1], 0.0, 1.0))
-
-
-def _load_price(cfg: dict[str, object]) -> pd.DataFrame:
-    market = cfg.get("class")
-    if market not in PRICE_DIRS:
-        raise ValueError(f"未知市场分类: {market}")
-    path = PRICE_DIRS[market] / f"{cfg['code']}_price.csv"
-    df = _read_csv(path)
-    if not df.empty:
-        df = df.sort_values("date")
-        df.set_index("date", inplace=True, drop=False)
-    return df
-
-
-def _load_valuation(cfg: dict[str, object]) -> pd.DataFrame:
-    for base in (DJEVA_DIR, THEME_VAL_DIR):
-        path = base / f"{cfg['code']}_valuation.csv"
-        df = _read_csv(path)
-        if not df.empty:
-            break
-    else:
-        return pd.DataFrame()
-    if df.empty:
-        return df
-    df = df.sort_values("date")
-    df.set_index("date", inplace=True, drop=False)
-    numeric_cols = [
-        "pe",
-        "pb",
-        "pe_percentile",
-        "pb_percentile",
-        "dividend_yield",
-        "roe",
-        "bond_yield",
-    ]
-    for col in numeric_cols:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df
 
 
 def main() -> None:
     indices = load_indices()
-    records: list[dict[str, object]] = []
+    val_all = _read(VAL_FILE)
+    price_all = _read(PRICE_FILE)
+    records = []
 
     for cfg in indices:
         code = cfg["code"]
-        valuation = _load_valuation(cfg)
-        prices = _load_price(cfg)
+        val = val_all[val_all["index_code"] == code].sort_values("date") if not val_all.empty else pd.DataFrame()
+        prc = price_all[price_all["index_code"] == code].sort_values("date") if not price_all.empty else pd.DataFrame()
 
-        if valuation.empty:
+        if val.empty:
             print(f"[metrics] 缺少估值数据: {code}")
-        if prices.empty:
+        if prc.empty:
             print(f"[metrics] 缺少行情数据: {code}")
 
         pe_pct = None
-        if "pe_percentile" in valuation.columns:
-            pe_pct = _current(valuation.get("pe_percentile", pd.Series(dtype=float)))
-            if pe_pct is not None:
-                pe_pct = float(pe_pct) * 100.0
+        if "pe_pct" in val.columns:
+            v = _current(val["pe_pct"])
+            if v is not None:
+                pe_pct = float(v) * 100.0 if v <= 1 else float(v)
         if pe_pct is None:
-            pe_pct = _percentile(valuation.get("pe", pd.Series(dtype=float)))
+            pe_pct = _percentile(val.get("pe", pd.Series(dtype=float)))
 
         pb_pct = None
-        if "pb_percentile" in valuation.columns:
-            pb_pct = _current(valuation.get("pb_percentile", pd.Series(dtype=float)))
-            if pb_pct is not None:
-                pb_pct = float(pb_pct) * 100.0
+        if "pb_pct" in val.columns:
+            v = _current(val["pb_pct"])
+            if v is not None:
+                pb_pct = float(v) * 100.0 if v <= 1 else float(v)
         if pb_pct is None:
-            pb_pct = _percentile(valuation.get("pb", pd.Series(dtype=float)))
+            pb_pct = _percentile(val.get("pb", pd.Series(dtype=float)))
 
-        drawdown = _drawdown(prices.get("close", pd.Series(dtype=float)))
-        price_series = prices.get("close", pd.Series(dtype=float)).dropna()
-        price_len = int(price_series.shape[0])
-        # 回撤窗口标签：实际参与计算的时间跨度（十年封顶），如实标注
-        if price_len > 1 and isinstance(prices.index, pd.DatetimeIndex):
-            span_years = (prices.index.max() - prices.index.min()).days / 365.0
-        elif price_len > 1:
-            span_years = price_len / 250.0
+        close = prc.get("close", pd.Series(dtype=float))
+        drawdown = _drawdown(close)
+        price_len = int(_num(close).dropna().shape[0])
+        if price_len > 1 and not prc.empty:
+            span_years = (prc["date"].max() - prc["date"].min()).days / 365.0
         else:
             span_years = 0.0
         dd_window = f"{min(span_years, 10.0):.0f}y" if span_years > 0 else ""
 
-        pe_current = _current(valuation.get("pe", pd.Series(dtype=float)))
-        pb_current = _current(valuation.get("pb", pd.Series(dtype=float)))
-        div_current = _current(valuation.get("dividend_yield", pd.Series(dtype=float)))
-        roe_current = _current(valuation.get("roe", pd.Series(dtype=float)))
-
         coverage = "full" if (pe_pct is not None and pb_pct is not None) else "partial"
+        last_val = val.iloc[-1] if not val.empty else {}
 
-        eva_type = None
-        eva_type_int = None
-        bond_yield = None
-        if not valuation.empty:
-            last = valuation.iloc[-1]
-            eva_type = last.get("eva_type")
-            eva_type_int = last.get("eva_type_int")
-            bond_yield = last.get("bond_yield")
-
-        records.append(
-            {
-                "index_code": code,
-                "pe_pct": pe_pct,
-                "pb_pct": pb_pct,
-                "drawdown": drawdown,
-                "pe_current": pe_current,
-                "pb_current": pb_current,
-                "dividend_current": div_current,
-                "roe_current": roe_current,
-                "eva_type": eva_type,
-                "eva_type_int": eva_type_int,
-                "bond_yield": bond_yield,
-                "coverage": coverage,
-                "dd_window": dd_window,
-                "watch": bool(cfg.get("watch", False)),
-            }
-        )
+        records.append({
+            "index_code": code,
+            "pe_pct": pe_pct,
+            "pb_pct": pb_pct,
+            "drawdown": drawdown,
+            "pe_current": _current(val.get("pe", pd.Series(dtype=float))),
+            "pb_current": _current(val.get("pb", pd.Series(dtype=float))),
+            "dividend_current": _current(val.get("dividend", pd.Series(dtype=float))),
+            "roe_current": _current(val.get("roe", pd.Series(dtype=float))),
+            "eva_type": last_val.get("eva_type") if not val.empty else None,
+            "eva_type_int": None,
+            "bond_yield": None,
+            "coverage": coverage,
+            "dd_window": dd_window,
+            "watch": bool(cfg.get("watch", False)),
+        })
 
     metrics = pd.DataFrame(records)
     metrics.to_csv(METRICS_FILE, index=False)
