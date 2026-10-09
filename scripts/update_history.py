@@ -13,11 +13,13 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
 
 import akshare as ak
 import pandas as pd
+import requests
 import yfinance as yf
 
 try:
@@ -60,6 +62,24 @@ def _append_trim(existing: pd.DataFrame, new: pd.DataFrame, cols) -> pd.DataFram
     df = df.sort_values(["index_code", "date"])
     df = df.groupby("index_code", group_keys=False).tail(KEEP_ROWS)
     return df[cols]
+
+
+PE_HIST_URL = "https://danjuanapp.com/djapi/index_eva/pe_history/{code}?day=all"
+UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124 Safari/537.36"
+
+
+def _pe_history(djeva_code: str) -> list:
+    """蛋卷 PE 历史（周频，2016 起），用于给曲线回补 PE 分位。"""
+    r = requests.get(PE_HIST_URL.format(code=djeva_code),
+                     headers={"User-Agent": UA, "Referer": "https://danjuanfunds.com/"}, timeout=30)
+    data = r.json().get("data", {}) or {}
+    out = []
+    for it in data.get("index_eva_pe_growths", []):
+        ts, pe = it.get("ts"), it.get("pe")
+        if ts and pe is not None:
+            out.append({"date": dt.datetime.utcfromtimestamp(float(ts) / 1000).date().isoformat(),
+                        "pe": float(pe)})
+    return out
 
 
 def _djeva_snapshot() -> dict:
@@ -163,6 +183,19 @@ def main() -> None:
                 row = _csindex_valuation(str(cfg["csindex_symbol"]))
             except Exception as exc:  # noqa: BLE001
                 print(f"  中证估值失败 {code}: {str(exc)[:90]}")
+
+        # 一次性回补 PE 历史（供曲线），仅蛋卷指数；放在快照之前，同日以快照为准
+        if cfg.get("djeva_code"):
+            have_pe = int(val_hist[(val_hist["index_code"] == code) & (pd.to_numeric(val_hist["pe"], errors="coerce").notna())].shape[0])
+            if have_pe < 100:
+                try:
+                    for rec in _pe_history(str(cfg["djeva_code"])):
+                        new_val.append({"index_code": code, "date": rec["date"], "pe": rec["pe"],
+                                        "pe_pct": None, "pb": None, "pb_pct": None,
+                                        "dividend": None, "roe": None, "eva_type": None})
+                except Exception as exc:  # noqa: BLE001
+                    print(f"  PE 回补失败 {code}: {str(exc)[:80]}")
+
         if row:
             new_val.append({"index_code": code, **{k: row.get(k) for k in VAL_COLS if k != "index_code"}})
 
